@@ -1,0 +1,10 @@
+Place local images for the Streamlit app in this folder.
+
+Supported formats:
+- jpg
+- jpeg
+- png
+- bmp
+- tif
+- tiff
+- webp

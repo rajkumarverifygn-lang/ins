@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local-only assets and runtime files
+input_images/*
+!input_images/PLACE_LOCAL_IMAGES_HERE.txt
+model/sam3.pt

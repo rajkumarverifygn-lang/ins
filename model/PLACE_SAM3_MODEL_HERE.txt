@@ -1,0 +1,3 @@
+Place your local SAM3 checkpoint in this folder and rename it to:
+
+sam3.pt

@@ -1,0 +1,9 @@
+# Install PyTorch separately for your GPU/CPU environment first.
+# Example:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+streamlit>=1.36
+ultralytics>=8.3.237
+opencv-python>=4.8
+pillow>=10.0
+numpy>=1.26
+pandas>=2.2
