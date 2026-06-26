@@ -47,6 +47,19 @@ Add your API key in Streamlit Cloud:
 VERIFYGNCLOUD_API_KEY = "your_verifygncloud_api_key_here"
 ```
 
+The app also accepts these fallback formats if needed:
+
+```toml
+ROBOFLOW_API_KEY = "your_verifygncloud_api_key_here"
+```
+
+or:
+
+```toml
+[verifygncloud]
+api_key = "your_verifygncloud_api_key_here"
+```
+
 For localhost testing, copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` inside this app folder and paste the real key there:
 
 ```text
@@ -60,6 +73,8 @@ Manage app -> Settings -> Secrets
 ```
 
 Then paste the key, save, and reboot the app.
+
+As a last-resort deployment fallback, you can also set `VERIFYGNCLOUD_API_KEY` directly in `config.py`, but avoid that for public GitHub repositories.
 
 ## Prompt and Class Mapping
 

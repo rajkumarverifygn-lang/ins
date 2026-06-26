@@ -51,6 +51,9 @@ INFERENCE_BACKEND = os.getenv("INFERENCE_BACKEND", "verifygncloud").strip().lowe
 
 # VERIFYGNCLOUD settings. Keep the API key in Streamlit Secrets:
 # VERIFYGNCLOUD_API_KEY = "your_key_here"
+# As a last-resort deployment fallback, you can hardcode the key here.
+# Avoid doing that in a public GitHub repo.
+VERIFYGNCLOUD_API_KEY = env_text("VERIFYGNCLOUD_API_KEY", "")
 VERIFYGNCLOUD_API_URL = env_text("VERIFYGNCLOUD_API_URL", "https://serverless.roboflow.com")
 VERIFYGNCLOUD_API_KEY_ENV = env_text("VERIFYGNCLOUD_API_KEY_ENV", "VERIFYGNCLOUD_API_KEY") or "VERIFYGNCLOUD_API_KEY"
 VERIFYGNCLOUD_WORKSPACE = env_text("VERIFYGNCLOUD_WORKSPACE", "rajkumarm")

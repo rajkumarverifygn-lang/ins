@@ -256,22 +256,65 @@ def primary_local_secrets_path() -> Path:
     return local_secret_candidate_paths()[0]
 
 
-def get_managed_streamlit_secret(name: str) -> str:
-    def search_secret(container: Any, target_keys: List[str]) -> str:
-        if isinstance(container, Mapping):
-            for key in target_keys:
-                value = container.get(key, "")
-                if value not in ("", None):
-                    return str(value).strip()
-            for value in container.values():
-                found = search_secret(value, target_keys)
-                if found:
-                    return found
+def as_mapping(value: Any) -> Optional[Mapping]:
+    if isinstance(value, Mapping):
+        return value
+    if hasattr(value, "items") and callable(getattr(value, "items")):
+        try:
+            return dict(value.items())
+        except Exception:
+            return None
+    return None
+
+
+def unique_texts(values: Iterable[str]) -> List[str]:
+    items: List[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        marker = text.lower()
+        if marker in seen:
+            continue
+        seen.add(marker)
+        items.append(text)
+    return items
+
+
+def find_secret_in_mapping(container: Any, direct_keys: List[str], section_keys: Optional[List[str]] = None) -> str:
+    mapping = as_mapping(container)
+    if mapping is None:
         return ""
 
-    target_keys = [name, name.lower(), name.upper()]
+    for key in direct_keys:
+        value = mapping.get(key, "")
+        if value not in ("", None):
+            return str(value).strip()
+
+    if section_keys:
+        generic_keys = ["api_key", "API_KEY", "key", "KEY", "token", "TOKEN"]
+        for section_key in section_keys:
+            section_value = mapping.get(section_key, None)
+            section_mapping = as_mapping(section_value)
+            if section_mapping is None:
+                continue
+            for generic_key in generic_keys:
+                value = section_mapping.get(generic_key, "")
+                if value not in ("", None):
+                    return str(value).strip()
+
+    for value in mapping.values():
+        found = find_secret_in_mapping(value, direct_keys, section_keys)
+        if found:
+            return found
+    return ""
+
+
+def get_managed_streamlit_secret(name: str) -> str:
+    target_keys = unique_texts([name, name.lower(), name.upper()])
     try:
-        value = search_secret(st.secrets, target_keys)
+        value = find_secret_in_mapping(st.secrets, target_keys)
     except Exception:
         value = ""
     return str(value or "").strip()
@@ -304,19 +347,53 @@ def selected_inference_backend() -> str:
 
 
 def get_verifygncloud_api_key() -> str:
+    configured_key = str(getattr(config, "VERIFYGNCLOUD_API_KEY", "") or "").strip()
+    if configured_key:
+        return configured_key
+
     key_env_name = (
         get_deployment_setting("VERIFYGNCLOUD_API_KEY_ENV", "VERIFYGNCLOUD_API_KEY")
         or "VERIFYGNCLOUD_API_KEY"
     )
-    api_key = os.getenv(key_env_name) or get_streamlit_secret(key_env_name)
-    if not api_key and key_env_name != "VERIFYGNCLOUD_API_KEY":
-        api_key = os.getenv("VERIFYGNCLOUD_API_KEY") or get_streamlit_secret("VERIFYGNCLOUD_API_KEY")
-    if not api_key:
-        legacy_key_name = key_env_name.replace("VERIFYGNCLOUD", "ROBOFLOW")
-        api_key = os.getenv(legacy_key_name) or get_streamlit_secret(legacy_key_name)
-    if not api_key:
-        legacy_default_key_name = config.legacy_name("VERIFYGNCLOUD_API_KEY")
-        api_key = os.getenv(legacy_default_key_name) or get_streamlit_secret(legacy_default_key_name)
+    legacy_default_key_name = config.legacy_name("VERIFYGNCLOUD_API_KEY")
+    legacy_key_name = key_env_name.replace("VERIFYGNCLOUD", "ROBOFLOW")
+
+    direct_keys = unique_texts(
+        [
+            key_env_name,
+            "VERIFYGNCLOUD_API_KEY",
+            legacy_key_name,
+            legacy_default_key_name,
+            "verifygncloud_api_key",
+            "roboflow_api_key",
+        ]
+    )
+    section_keys = unique_texts(
+        [
+            "VERIFYGNCLOUD",
+            "verifygncloud",
+            "Roboflow",
+            "ROBOFLOW",
+            "roboflow",
+            "cloud",
+            "CLOUD",
+        ]
+    )
+
+    for key_name in direct_keys:
+        api_key = os.getenv(key_name)
+        if api_key:
+            return str(api_key).strip()
+
+    local_secrets = load_local_secrets()
+    api_key = find_secret_in_mapping(local_secrets, direct_keys, section_keys)
+    if api_key:
+        return api_key
+
+    try:
+        api_key = find_secret_in_mapping(st.secrets, direct_keys, section_keys)
+    except Exception:
+        api_key = ""
     return str(api_key or "").strip()
 
 
@@ -585,9 +662,11 @@ def run_verifygncloud_workflow(image_path: Path, prompt_specs: List[PromptSpec])
     if not api_key:
         local_hint = primary_local_secrets_path()
         raise RuntimeError(
-            "VERIFYGNCLOUD API key is missing. For localhost, create "
-            f"`{local_hint}` with `VERIFYGNCLOUD_API_KEY = \"your_key\"`. "
-            "Do not put the real key in `secrets.toml.example`. For Streamlit Cloud, add the key in Secrets and reboot the app."
+            "VERIFYGNCLOUD API key is missing. Accepted locations are: "
+            f"`{local_hint}` for localhost, Streamlit Cloud Secrets with "
+            "`VERIFYGNCLOUD_API_KEY` or legacy `ROBOFLOW_API_KEY`, nested TOML sections like "
+            "`[verifygncloud] api_key = \"...\"`, or the `VERIFYGNCLOUD_API_KEY` value in config.py. "
+            "Do not put the real key in `secrets.toml.example`."
         )
 
     api_url = get_deployment_setting("VERIFYGNCLOUD_API_URL", "https://serverless.roboflow.com")
