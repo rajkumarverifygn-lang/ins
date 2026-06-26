@@ -1,13 +1,14 @@
-# SAM3 Streamlit App
+# VERIFYGN Streamlit Detection App
 
-Separate Streamlit deployment bundle for SAM3 text-guided detection with:
+Separate Streamlit deployment bundle for image detection with:
 
 - upload image mode
 - browser camera mode
 - system webcam fallback mode
+- VERIFYGNCLOUD workflow inference by default
 - prompt/class mappings controlled from script-side config
 - class count result per image
-- bounding box preview per image
+- detected image preview with bounding boxes/labels
 - hidden Streamlit default chrome
 - configurable company logo and heading
 
@@ -18,37 +19,72 @@ sam3_streamlit_app/
   app.py
   backend.py
   config.py
+  requirements.txt
   requirements_streamlit.txt
   assets/VFN_logo.png
-  model/sam3.pt
 ```
 
-## Setup
+`model/` is optional now. The default backend is VERIFYGNCLOUD, so Streamlit Cloud does not need to download or load `sam3.pt`.
 
-1. Create or activate your Python environment.
-2. Install PyTorch for your machine.
-3. Install the app requirements:
+## VERIFYGNCLOUD Setup
+
+The app is configured in `config.py` to use:
+
+```python
+INFERENCE_BACKEND = "verifygncloud"
+VERIFYGNCLOUD_API_URL = "https://serverless.roboflow.com"
+VERIFYGNCLOUD_WORKSPACE = "rajkumarm"
+VERIFYGNCLOUD_WORKFLOW_ID = "general-segmentation-api"
+VERIFYGNCLOUD_IMAGE_INPUT = "image"
+VERIFYGNCLOUD_CLASSES_INPUT = "classes"
+VERIFYGNCLOUD_ANNOTATED_OUTPUT = "annotated_image"
+VERIFYGNCLOUD_PREDICTIONS_OUTPUT = "predictions"
+```
+
+Add your API key in Streamlit Cloud:
+
+```toml
+VERIFYGNCLOUD_API_KEY = "your_verifygncloud_api_key_here"
+```
+
+For localhost testing, copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` inside this app folder and paste the real key there:
+
+```text
+SAM/sam3_streamlit_app/.streamlit/secrets.toml
+```
+
+In Streamlit Cloud, open:
+
+```text
+Manage app -> Settings -> Secrets
+```
+
+Then paste the key, save, and reboot the app.
+
+## Prompt and Class Mapping
+
+Edit `PROMPT_CLASS_MAP` in `config.py`:
+
+```python
+PROMPT_CLASS_MAP = [
+    ("GOLD", "INSERT_NUT"),
+]
+```
+
+The first value is sent to the VERIFYGNCLOUD workflow as the prompt/class input. The second value is the class name shown in the UI count table.
+
+## Run Locally
 
 ```bash
 pip install -r requirements.txt
-```
-
-4. Put your SAM3 checkpoint at:
-
-```text
-model/sam3.pt
-```
-
-5. Optional:
-   - Edit `config.py` to change the logo path, title, subtitle, hardcoded prompt/class mapping, confidence, IoU, and defaults.
-
-## Run
-
-```bash
 streamlit run app.py
 ```
 
-On Windows you can also use `RUN_STREAMLIT_WINDOWS.bat`.
+If your local environment already had an older `inference-sdk` installed, refresh it with:
+
+```bash
+pip install --upgrade "inference-sdk>=1.3.2"
+```
 
 You can also run:
 
@@ -60,50 +96,46 @@ The script will auto-launch itself with Streamlit.
 
 ## Deploy to Streamlit Community Cloud
 
-1. Push the app folder and required files to GitHub.
+1. Push this folder to GitHub.
 2. Make sure these files are in GitHub:
    - `app.py`
    - `backend.py`
    - `config.py`
    - `requirements.txt`
    - `assets/VFN_logo.png`
-3. If `model/sam3.pt` is small enough for GitHub, push it too.
-4. If `model/sam3.pt` is too large, use Git LFS or change the app to download the model at runtime from cloud storage.
-5. In Streamlit Community Cloud, click `Create app`.
-6. Choose your GitHub repo, branch, and entry file:
+3. In Streamlit Community Cloud, create the app from your GitHub repo.
+4. Set the main file path to:
+
+```text
+app.py
+```
+
+If this folder is inside a bigger repo, use:
 
 ```text
 SAM/sam3_streamlit_app/app.py
 ```
 
-## Important deployment note
+5. Add `VERIFYGNCLOUD_API_KEY` in Streamlit Secrets.
+6. Reboot the app.
 
-Streamlit Community Cloud can only access files that are available in the deployed environment. That means:
+## Optional Local Model Mode
 
-- local files on your PC are not available unless they are uploaded to GitHub or downloaded by the app at runtime
-- your `assets` folder should be uploaded to GitHub
-- your `model` folder should also be uploaded if you want the app to load `model/sam3.pt` directly
-
-## Prompt and class mapping
-
-Edit `PROMPT_CLASS_MAP` in `config.py` with rows like:
+If you want to use a local model instead of VERIFYGNCLOUD, set this in `config.py`:
 
 ```python
-PROMPT_CLASS_MAP = [
-    ("person wearing helmet", "helmet_person"),
-    ("red apple", "apple"),
-    ("car", "vehicle"),
-]
+INFERENCE_BACKEND = "local"
 ```
 
-The `Prompt` is sent to SAM3. The `Class` is what appears on the UI and count table.
+Then configure `MODEL_PATH`, `MODEL_DOWNLOAD_URL`, or Hugging Face model settings in `config.py`.
+
+Local model mode also needs model packages such as `torch`, `ultralytics`, `timm`, `transformers`, and related dependencies. VERIFYGNCLOUD mode does not need them.
+
+For Streamlit Community Cloud, API mode is recommended because very large model files can cause long downloads, memory errors, or app crashes.
 
 ## Notes
 
-- Confidence is hardcoded in `config.py` and intentionally hidden from the UI.
-- Bounding boxes are shown on output images.
-- Confidence values are not shown on the UI.
+- Confidence and IoU are script-side only and hidden from the UI.
 - Branding is controlled through `config.py` and `assets/VFN_logo.png`.
-- Model path, prompt/class mapping, confidence, and IoU are script-side only and not shown on the UI.
 - The UI is intentionally limited to logo, heading, input source, Detect, Reset, raw image, detected image, and class/count output.
 - If the browser camera stays blank, allow browser and Windows camera permissions or use the `System Webcam` input mode.

@@ -1,16 +1,83 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
+
+
+def env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def legacy_name(name: str) -> str:
+    return name.replace("VERIFYGNCLOUD", "ROBOFLOW")
+
+
+def env_text(name: str, default: str = "") -> str:
+    value = os.getenv(name)
+    if value is None:
+        value = os.getenv(legacy_name(name), default)
+    return str(value or default).strip()
+
 
 # Branding: edit these values to customize the operator UI.
 APP_TITLE = "INSERT NUT DETECTOR"
 APP_SUBTITLE = "Upload or capture an image, detect configured classes, and review per-class counts."
 LOGO_PATH = APP_DIR / "assets" / "VFN_logo.png"
 
+# Inference backend:
+# - "verifygncloud" calls your cloud workflow API and does not download/load a model
+#   on Streamlit Cloud.
+# - "local" uses the local model settings below.
+INFERENCE_BACKEND = os.getenv("INFERENCE_BACKEND", "verifygncloud").strip().lower() or "verifygncloud"
+
+# VERIFYGNCLOUD settings. Keep the API key in Streamlit Secrets:
+# VERIFYGNCLOUD_API_KEY = "your_key_here"
+VERIFYGNCLOUD_API_URL = env_text("VERIFYGNCLOUD_API_URL", "https://serverless.roboflow.com")
+VERIFYGNCLOUD_API_KEY_ENV = env_text("VERIFYGNCLOUD_API_KEY_ENV", "VERIFYGNCLOUD_API_KEY") or "VERIFYGNCLOUD_API_KEY"
+VERIFYGNCLOUD_WORKSPACE = env_text("VERIFYGNCLOUD_WORKSPACE", "rajkumarm")
+VERIFYGNCLOUD_WORKFLOW_ID = env_text("VERIFYGNCLOUD_WORKFLOW_ID", "general-segmentation-api")
+VERIFYGNCLOUD_IMAGE_INPUT = env_text("VERIFYGNCLOUD_IMAGE_INPUT", "image") or "image"
+VERIFYGNCLOUD_CLASSES_INPUT = env_text("VERIFYGNCLOUD_CLASSES_INPUT", "classes") or "classes"
+VERIFYGNCLOUD_ANNOTATED_OUTPUT = env_text("VERIFYGNCLOUD_ANNOTATED_OUTPUT", "annotated_image") or "annotated_image"
+VERIFYGNCLOUD_PREDICTIONS_OUTPUT = env_text("VERIFYGNCLOUD_PREDICTIONS_OUTPUT", "predictions") or "predictions"
+VERIFYGNCLOUD_TIMEOUT_SEC = env_int("VERIFYGNCLOUD_TIMEOUT_SEC", env_int(legacy_name("VERIFYGNCLOUD_TIMEOUT_SEC"), 180))
+
 # Script-side model placement.
-MODEL_PATH = APP_DIR / "model" / "sam3.pt"
+# Lightweight YOLOE segmentation model (~28 MB) with text prompts, instead of
+# the ~3.2 GB SAM3 checkpoint that could not fit in Streamlit Cloud RAM.
+MODEL_PATH = APP_DIR / "model" / "yoloe-11s-seg.pt"
+# Cloud model source. Hardcoded to the Ultralytics YOLOE release so a stale
+# Streamlit Secret cannot pull the old SAM3 model by accident.
+MODEL_DOWNLOAD_URL = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yoloe-11s-seg.pt"
+MODEL_HF_REPO_ID = os.getenv("MODEL_HF_REPO_ID", "").strip()
+MODEL_HF_FILENAME = os.getenv("MODEL_HF_FILENAME", "yoloe-11s-seg.pt").strip()
+MODEL_HF_REVISION = os.getenv("MODEL_HF_REVISION", "main").strip() or "main"
+MODEL_HF_TOKEN_ENV = os.getenv("MODEL_HF_TOKEN_ENV", "HF_TOKEN").strip() or "HF_TOKEN"
+MODEL_DOWNLOAD_TIMEOUT_SEC = env_int("MODEL_DOWNLOAD_TIMEOUT_SEC", 3600)
+
+# Prevent Streamlit Cloud from being killed by very large model downloads/loads.
+MODEL_RESOURCE_GUARD_ENABLED = env_bool("MODEL_RESOURCE_GUARD_ENABLED", True)
+MODEL_LOAD_RAM_MULTIPLIER = env_float("MODEL_LOAD_RAM_MULTIPLIER", 2.5)
+MODEL_MIN_FREE_DISK_GB = env_float("MODEL_MIN_FREE_DISK_GB", 1.0)
 
 # Hardcoded detection settings: intentionally not exposed in the UI.
 HARD_CODED_CONFIDENCE = 0.65

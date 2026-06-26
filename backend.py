@@ -5,13 +5,27 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-import cv2
 import numpy as np
+
+try:
+    import cv2
+    CV2_IMPORT_ERROR = None
+except Exception as exc:
+    cv2 = None
+    CV2_IMPORT_ERROR = exc
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 
 
-def normalize_imgsz(value: int, stride: int = 14) -> int:
+def require_cv2():
+    if cv2 is None:
+        raise RuntimeError(
+            "OpenCV is not available. Install `opencv-python-headless>=4.8` for Streamlit Cloud "
+            "or `opencv-python>=4.8` on Windows."
+        ) from CV2_IMPORT_ERROR
+
+
+def normalize_imgsz(value: int, stride: int = 32) -> int:
     value = max(int(stride), int(value))
     rounded = int(stride * round(value / float(stride)))
     return max(int(stride), rounded)
@@ -40,6 +54,7 @@ def binary_mask(mask: np.ndarray, shape_hw: Optional[Tuple[int, int]] = None) ->
             m = m.max(axis=0) if m.shape[0] < 8 else m.max(axis=-1)
     m = m > 0.5
     if shape_hw is not None and m.shape[:2] != shape_hw:
+        require_cv2()
         m = cv2.resize(m.astype(np.uint8), (shape_hw[1], shape_hw[0]), interpolation=cv2.INTER_NEAREST) > 0
     return m.astype(np.uint8)
 
@@ -105,105 +120,42 @@ class Annotation:
         )
 
 
-class CallableTokenizerProxy:
-    """Compatibility wrapper for tokenizer objects that expose encode() but are not callable."""
-
-    def __init__(self, tokenizer):
-        self._tokenizer = tokenizer
-
-    def __getattr__(self, name):
-        return getattr(self._tokenizer, name)
-
-    @staticmethod
-    def _special_token_id(tokenizer, attr_names: Sequence[str], encoder_keys: Sequence[str]) -> Optional[int]:
-        for name in attr_names:
-            value = getattr(tokenizer, name, None)
-            if isinstance(value, int):
-                return value
-        encoder = getattr(tokenizer, "encoder", None) or {}
-        for key in encoder_keys:
-            value = encoder.get(key)
-            if isinstance(value, int):
-                return value
-        return None
-
-    def __call__(self, texts, context_length: Optional[int] = None, truncate: bool = False):
-        import torch
-
-        if isinstance(texts, str):
-            texts = [texts]
-        elif texts is None:
-            texts = [""]
-        else:
-            texts = list(texts)
-
-        if hasattr(self._tokenizer, "tokenize"):
-            try:
-                return self._tokenizer.tokenize(texts, context_length=context_length)
-            except TypeError:
-                pass
-
-        if not hasattr(self._tokenizer, "encode"):
-            raise TypeError(f"{type(self._tokenizer).__name__} is not callable and has no encode() method.")
-
-        context_length = int(context_length or getattr(self._tokenizer, "context_length", 77) or 77)
-        start_token = self._special_token_id(
-            self._tokenizer,
-            ("sot_token_id", "bos_token_id", "start_token_id"),
-            ("<|startoftext|>", "<start_of_text>", "<s>", "[CLS]"),
-        )
-        end_token = self._special_token_id(
-            self._tokenizer,
-            ("eot_token_id", "eos_token_id", "end_token_id"),
-            ("<|endoftext|>", "<end_of_text>", "</s>", "[SEP]"),
-        )
-
-        out = torch.zeros((len(texts), context_length), dtype=torch.long)
-        for row, text in enumerate(texts):
-            token_ids = list(self._tokenizer.encode(text or ""))
-            if start_token is not None and (not token_ids or token_ids[0] != start_token):
-                token_ids = [start_token] + token_ids
-            if end_token is not None and (not token_ids or token_ids[-1] != end_token):
-                token_ids = token_ids + [end_token]
-            if len(token_ids) > context_length:
-                token_ids = token_ids[:context_length]
-                if truncate and end_token is not None:
-                    token_ids[-1] = end_token
-            if token_ids:
-                out[row, : len(token_ids)] = torch.tensor(token_ids, dtype=torch.long)
-        return out
-
-
 class SAM3TextBackend:
+    """Text-prompted detector backend.
+
+    This now wraps the lightweight Ultralytics **YOLOE** segmentation model
+    (e.g. ``yoloe-11s-seg.pt``, ~28 MB) instead of SAM3 (~3.2 GB), so it loads
+    and runs on Streamlit Cloud CPU. The class name is kept unchanged so the
+    existing ``app.py`` import (`SAM3TextBackend`) keeps working.
+    """
+
     def __init__(self, model_path: str, conf: float, iou: float, half: bool, imgsz: int):
         self.model_path = str(model_path)
         self.conf = float(conf)
         self.iou = float(iou)
         self.half = bool(half)
-        self.imgsz = normalize_imgsz(imgsz)
-        self.semantic_predictor = None
+        self.imgsz = normalize_imgsz(imgsz, stride=32)
+        self.model = None
         self.lock = threading.Lock()
 
     def load(self):
-        if self.semantic_predictor is not None:
+        if self.model is not None:
             return
         if not Path(self.model_path).exists():
             raise FileNotFoundError(f"Model file not found: {self.model_path}")
-        from ultralytics.models.sam import SAM3SemanticPredictor
+        try:
+            from ultralytics import YOLOE
+        except (ModuleNotFoundError, ImportError) as exc:
+            self._raise_missing_dependency(exc)
+        self.model = YOLOE(self.model_path)
 
-        overrides = dict(
-            conf=float(self.conf),
-            iou=float(self.iou),
-            task="segment",
-            mode="predict",
-            model=self.model_path,
-            half=bool(self.half),
-            imgsz=int(self.imgsz),
-            verbose=False,
-            save=False,
-        )
-        self.semantic_predictor = SAM3SemanticPredictor(overrides=overrides)
-        self._patch_text_tokenizers()
+    @staticmethod
+    def _raise_missing_dependency(exc: Exception):
+        missing = getattr(exc, "name", "") or str(exc)
+        raise RuntimeError(
+            f"Missing Python package `{missing}` required by the VFGN model. "
+            "Update requirements.txt, push to GitHub, and reboot the Streamlit app."
+        ) from exc
 
     @staticmethod
     def _normalize_prompt_specs(prompts: Sequence[object]) -> List[PromptSpec]:
@@ -222,76 +174,36 @@ class SAM3TextBackend:
                 specs.append(PromptSpec(prompt=prompt, label=label))
         return specs
 
-    @staticmethod
-    def _is_walkable_object(value) -> bool:
-        return isinstance(value, (dict, list, tuple, set)) or hasattr(value, "__dict__")
-
-    def _patch_text_tokenizers(self) -> int:
-        predictor_model = getattr(self.semantic_predictor, "model", None)
-        if predictor_model is None:
-            return 0
-
-        patched = 0
-        seen = set()
-        stack = [(predictor_model, 0)]
-        while stack:
-            current, depth = stack.pop()
-            obj_id = id(current)
-            if obj_id in seen or depth > 12:
-                continue
-            seen.add(obj_id)
-
-            if isinstance(current, dict):
-                children = list(current.values())
-                attrs = []
-            elif isinstance(current, (list, tuple, set)):
-                children = list(current)
-                attrs = []
-            else:
-                children = []
-                try:
-                    attrs = list(vars(current).items())
-                except TypeError:
-                    attrs = []
-
-            for name, value in attrs:
-                if "tokenizer" in name.lower() and value is not None and not callable(value):
-                    if not isinstance(value, CallableTokenizerProxy) and (
-                        hasattr(value, "encode") or hasattr(value, "tokenize") or hasattr(value, "encoder")
-                    ):
-                        setattr(current, name, CallableTokenizerProxy(value))
-                        patched += 1
-                        value = getattr(current, name)
-                if depth < 12 and self._is_walkable_object(value):
-                    children.append(value)
-
-            if depth < 12:
-                for child in children:
-                    if self._is_walkable_object(child):
-                        stack.append((child, depth + 1))
-
-        return patched
-
-    def _run_text_prompt(self, prompt: str):
-        self._patch_text_tokenizers()
+    def _set_text_classes(self, names: Sequence[str]):
+        names = list(names)
+        # Newer Ultralytics accepts set_classes(names) directly; older versions
+        # require the text prompt embeddings from get_text_pe(names).
         try:
-            return self.semantic_predictor(text=[prompt])
-        except TypeError as exc:
-            message = str(exc)
-            if "SimpleTokenizer" not in message or "not callable" not in message:
-                raise
-            if self._patch_text_tokenizers() == 0:
-                raise RuntimeError(
-                    "SAM3 text prompting failed because Ultralytics exposed a non-callable tokenizer. "
-                    "Update or reinstall ultralytics."
-                ) from exc
-            return self.semantic_predictor(text=[prompt])
+            self.model.set_classes(names, self.model.get_text_pe(names))
+            return
+        except (TypeError, AttributeError):
+            pass
+        self.model.set_classes(names)
+
+    def _run_text_prompt(self, prompt: str, image_path: str):
+        self._set_text_classes([prompt])
+        return self.model.predict(
+            image_path,
+            conf=float(self.conf),
+            iou=float(self.iou),
+            imgsz=int(self.imgsz),
+            half=False,  # fp16 is GPU-only; Streamlit Cloud runs on CPU.
+            retina_masks=True,
+            verbose=False,
+            save=False,
+        )
 
     def run_text(self, image_path: str, prompts: Sequence[object], max_instances: int = 9999) -> List[Annotation]:
         self.load()
         prompt_specs = self._normalize_prompt_specs(prompts)
         if not prompt_specs:
             raise ValueError("No prompts provided.")
+        require_cv2()
         image = cv2.imread(image_path)
         if image is None:
             raise FileNotFoundError(f"Could not read image: {image_path}")
@@ -299,9 +211,8 @@ class SAM3TextBackend:
         anns: List[Annotation] = []
         ann_id = 1
         with self.lock:
-            self.semantic_predictor.set_image(image_path)
             for color_idx, spec in enumerate(prompt_specs):
-                raw = self._run_text_prompt(spec.prompt)
+                raw = self._run_text_prompt(spec.prompt, image_path)
                 items = self._extract(
                     raw,
                     default_label=spec.label,
@@ -312,6 +223,9 @@ class SAM3TextBackend:
                 for ann in items:
                     if ann.area_px <= 0:
                         continue
+                    # Force the display label to the configured class name
+                    # (the model's class name is the raw text prompt).
+                    ann.label = spec.label
                     anns.append(ann)
                     ann_id += 1
                     if len(anns) >= max_instances:
