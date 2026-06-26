@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 from collections import Counter
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
@@ -256,8 +257,21 @@ def primary_local_secrets_path() -> Path:
 
 
 def get_managed_streamlit_secret(name: str) -> str:
+    def search_secret(container: Any, target_keys: List[str]) -> str:
+        if isinstance(container, Mapping):
+            for key in target_keys:
+                value = container.get(key, "")
+                if value not in ("", None):
+                    return str(value).strip()
+            for value in container.values():
+                found = search_secret(value, target_keys)
+                if found:
+                    return found
+        return ""
+
+    target_keys = [name, name.lower(), name.upper()]
     try:
-        value = st.secrets.get(name, "")
+        value = search_secret(st.secrets, target_keys)
     except Exception:
         value = ""
     return str(value or "").strip()
