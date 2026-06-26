@@ -255,16 +255,24 @@ def primary_local_secrets_path() -> Path:
     return local_secret_candidate_paths()[0]
 
 
+def get_managed_streamlit_secret(name: str) -> str:
+    try:
+        value = st.secrets.get(name, "")
+    except Exception:
+        value = ""
+    return str(value or "").strip()
+
+
 def get_streamlit_secret(name: str) -> str:
-    # Streamlit Cloud exposes root-level secrets as environment variables. For
-    # localhost, read the app-local .streamlit/secrets.toml directly so running
-    # from a parent folder does not produce Streamlit's "No secrets files found"
-    # warning boxes.
+    # Check env vars first, then app-local/home secrets files for localhost,
+    # then Streamlit-managed secrets for cloud deployments.
     value = os.getenv(name)
     if value:
         return str(value).strip()
     value = load_local_secrets().get(name, "")
-    return str(value or "").strip()
+    if value:
+        return str(value).strip()
+    return get_managed_streamlit_secret(name)
 
 
 def get_deployment_setting(name: str, default: str = "") -> str:
