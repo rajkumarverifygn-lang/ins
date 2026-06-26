@@ -90,7 +90,7 @@ USE_FP16 = True
 
 # Prompt/class mappings: also script-side only.
 PROMPT_CLASS_MAP = [
-    ("GOLD", "INSERT_NUT"),
+    ("brass insert, gold", "INSERT_NUT"),
     #("person wearing helmet", "helmet_person"),
     #("car", "vehicle"),
 ]
