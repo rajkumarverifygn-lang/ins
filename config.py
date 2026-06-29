@@ -90,9 +90,12 @@ USE_FP16 = True
 
 # Prompt/class mappings: also script-side only.
 PROMPT_CLASS_MAP = [
-    ("brass insert, gold", "INSERT_NUT"),
-    #("person wearing helmet", "helmet_person"),
-    #("car", "vehicle"),
+    ("concave surface deformation, depressed area on the surface, circular indentation on metal, light distortion from a dent on a painted surface, crushed inward section, shadowed depression indicating a dent, irregular surface concavity,dent on metal surface, shallow depression in metal, deformed dented spot dust, dent", "DENT"),
+    ("structural deformity, broken or missing material, compromised surface integrity, chipped edge, broken contour, fractured corner,gouge in the material, mangled surface texture, abrasion area, damaged area on surface, broken deformed region,surface defect, damage, crush", "DAMAGE"),
+    ("thin linear surface abrasion, scuff mark, contrasting scratch line, discolored hairline scratch, deep linear gouge, white scratch on clear coat, reflective scratch on brushed metal, surface scraping, scratch mark on surface, thin linear scratch, scratch line, scratch", "SCRATCH"),
+    ("hairline fracture, structural fissure, branching material separation,dark jagged line indicating a crack, spiderweb fracture pattern, split in the metallic housing, shattered pattern in glass/plastic, deep surface split, crack on surface, hairline fracture line, crack line in metal, crack", "CRACK"),
+    ("crumpled structural zone, massive inward deformation, crushed and folded material, severe impact damage, shattered and displaced components, buckled surface area, crushed metal area, impact damage region, deformed crushed surface, crash", "CRASH"),
+    #("", "SCRATCH"),
 ]
 
 # UI behavior.
