@@ -39,7 +39,7 @@ def env_text(name: str, default: str = "") -> str:
 
 
 # Branding: edit these values to customize the operator UI.
-APP_TITLE = "INSERT NUT DETECTOR"
+APP_TITLE = "VERIFYGN-DEFECT DETECTOR"
 APP_SUBTITLE = "Upload or capture an image, detect configured classes, and review per-class counts."
 LOGO_PATH = APP_DIR / "assets" / "VFN_logo.png"
 
