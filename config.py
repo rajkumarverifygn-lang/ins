@@ -83,9 +83,9 @@ MODEL_LOAD_RAM_MULTIPLIER = env_float("MODEL_LOAD_RAM_MULTIPLIER", 2.5)
 MODEL_MIN_FREE_DISK_GB = env_float("MODEL_MIN_FREE_DISK_GB", 1.0)
 
 # Hardcoded detection settings: intentionally not exposed in the UI.
-HARD_CODED_CONFIDENCE = 0.20
+HARD_CODED_CONFIDENCE = 0.01
 HARD_CODED_IOU = 0.50
-HARD_CODED_IMGSZ = 644
+HARD_CODED_IMGSZ = 640
 USE_FP16 = True
 
 # Prompt/class mappings: also script-side only.
